@@ -82,7 +82,7 @@ Expected_Return <- mean(portfolio_returns)
 df <- data.frame(Returns = portfolio_returns)
 
 ggplot(df, aes(x = Returns)) +
-  scale_x_continuous(breaks = seq(-0.7, 0.5, by = 0.05)+
+  scale_x_continuous(breaks = seq(-0.7, 0.5, by = 0.05))+
   geom_histogram(aes(y = ..density..), bins = 1000, fill = "steelblue", alpha = 0.7) +
   geom_density(color = "darkred", size = 1) +
   geom_vline(aes(xintercept = VaR, color = "VaR 95%"), linetype = "dashed", size = 1) +
