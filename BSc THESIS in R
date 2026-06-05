@@ -1,0 +1,105 @@
+# Caricamento dei pacchetti necessari
+library(quantmod)
+library(PerformanceAnalytics)
+library(ggplot2)
+
+# ---------------------------------------------------
+# 1. Scaricamento dati storici da Yahoo Finance
+# ---------------------------------------------------
+
+# Definizione ticker e periodo
+symbols <- c("^GSPC", "IEI") # S&P500 e iShares U.S. Treasury Bond ETF (proxy bond europei)
+start_date <- as.Date("2010-01-01")
+end_date <- Sys.Date()
+
+# Download dati giornalieri
+getSymbols(symbols, src = "yahoo", from = start_date, to = end_date)
+
+# Estrazione dati giornalieri
+stock_prices <- Ad(GSPC)
+bond_prices <- Ad(IEI)
+
+# Calcolo rendimenti giornalieri
+returns_stock <- dailyReturn(stock_prices, type = 'log')
+returns_bond <- dailyReturn(bond_prices, type = 'log')
+
+# Calcolo rendimenti annuali (compounding)
+annual_returns_stock <- periodReturn(stock_prices, period = 'yearly', type = 'arithmetic')
+annual_returns_bond <- periodReturn(bond_prices, period = 'yearly', type = 'arithmetic')
+
+# ---------------------------------------------------
+# 2. Setup parametri portafoglio
+# ---------------------------------------------------
+weights <- c(0.40, 0.60) # 40% azioni, 60% obbligazioni
+
+# ---------------------------------------------------
+# 3. Simulazione Monte Carlo
+# ---------------------------------------------------
+set.seed(123)
+n_sim <- 100000
+horizon <- 365 # 1 anno (giorni lavorativi)
+
+# Stima parametri distribuzione
+mu_stock <- mean(returns_stock, na.rm = TRUE)
+sigma_stock <- sd(returns_stock, na.rm = TRUE)
+mu_bond <- mean(returns_bond, na.rm = TRUE)
+sigma_bond <- sd(returns_bond, na.rm = TRUE)
+
+# Simulazione Browniano geometrico
+simulate_returns <- function(mu, sigma, n_days) {
+  cumsum(rnorm(n_days, mu, sigma))
+}
+
+# Matrice simulazioni
+sim_matrix <- matrix(NA, nrow = n_sim, ncol = 2)
+
+for(i in 1:n_sim) {
+  sim_stock <- exp(simulate_returns(mu_stock, sigma_stock, horizon))[horizon] - 1
+  sim_bond <- exp(simulate_returns(mu_bond, sigma_bond, horizon))[horizon] - 1
+  sim_matrix[i,] <- c(sim_stock, sim_bond)
+}
+
+# Rendimenti portafoglio simulati
+portfolio_returns <- sim_matrix %*% weights
+
+# ---------------------------------------------------
+# 4. Calcolo metriche di rischio
+# ---------------------------------------------------
+confidence_level <- 0.95
+
+# Value at Risk (VaR)
+VaR <- quantile(portfolio_returns, 1 - confidence_level)
+
+# Expected Shortfall (ES)
+ES <- mean(portfolio_returns[portfolio_returns <= VaR])
+
+# Valore atteso
+Expected_Return <- mean(portfolio_returns)
+
+# ---------------------------------------------------
+# 5. Creazione grafico finale
+# ---------------------------------------------------
+df <- data.frame(Returns = portfolio_returns)
+
+ggplot(df, aes(x = Returns)) +
+  scale_x_continuous(breaks = seq(-0.7, 0.5, by = 0.05)+
+  geom_histogram(aes(y = ..density..), bins = 1000, fill = "steelblue", alpha = 0.7) +
+  geom_density(color = "darkred", size = 1) +
+  geom_vline(aes(xintercept = VaR, color = "VaR 95%"), linetype = "dashed", size = 1) +
+  geom_vline(aes(xintercept = ES, color = "Expected Shortfall"), linetype = "dashed", size = 1) +
+  geom_vline(aes(xintercept = Expected_Return, color = "Valore Atteso"), linetype = "solid", size = 1) +
+  scale_color_manual(values = c("VaR 95%" = "darkgreen", 
+                                "Expected Shortfall" = "orange", 
+                                "Valore Atteso" = "purple")) +
+  labs(title = "Distribuzione Rendimenti Simulati - Portafoglio 40/60",
+       subtitle = paste("Orizzonte temporale:", horizon, "giorni | Simulazioni:", n_sim),
+       x = "Rendimenti Attesi", y = "Densità",
+       caption = "Fonte: Yahoo Finance") +
+  theme_minimal() +
+  annotate("text", x = 1, y = 0.5, label = paste("VaR 95%:", round(VaR*100, 2), "%"), 
+           hjust = 1.1, vjust = -1, color = "darkgreen") +
+  annotate("text", x = 0.75, y = 2.5, label = paste("ES:", round(ES*100, 2), "%"), 
+           hjust = -0.1, vjust = -1, color = "orange") +
+  annotate("text", x = 0.75, y = 1.5, label = paste("E[R]:", round(Expected_Return*100, 2), "%"), 
+           hjust = -0.1, vjust = -1, color = "purple")
+
